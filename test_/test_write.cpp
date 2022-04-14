@@ -15,8 +15,6 @@ int read_can_port;
 int open_port(const char *port)
 {
     struct ifreq ifr;
-
-    //printf("error!");
     struct sockaddr_can addr;
     /* open socket */
     soc = socket(PF_CAN, SOCK_RAW, CAN_RAW);
@@ -40,7 +38,6 @@ int open_port(const char *port)
         return (-1);
     }
 
-    //printf("error!");
     return 0;
 }
 
@@ -48,7 +45,7 @@ int open_port(const char *port)
 /* this is just an example, run in a thread */
 void read_port()
 {
-    struct can_frame frame_rd;
+    struct can_frame frame;
     int recvbytes = 0;
     read_can_port = 1;
     while(read_can_port)
@@ -67,14 +64,12 @@ void read_port()
             }
             if (FD_ISSET(soc, &readSet))
             {
-                recvbytes = read(soc, &frame_rd, sizeof(struct can_frame));
-		//printf("error!");
+                recvbytes = read(soc, &frame, sizeof(struct can_frame));
                 if(recvbytes)
-                {
-		    //printf("data = %02x\n", frame_rd.data[1]);
-                  
-                    for (int i = 0; i < frame_rd.can_dlc; i++) {
-                        printf("%02x", frame_rd.data[i]);
+                { 
+                    for (int i = 0; i < frame.can_dlc; i++) 
+		    {
+                        printf("%02x", frame.data[i]);
                     }
 		    printf("\n");
                     
@@ -87,19 +82,19 @@ void read_port()
 void write_port()
 {
 
-        struct can_frame frame_rd;	
-	frame_rd.can_id = 0x123;
-	frame_rd.can_dlc = 8;
-	frame_rd.data[0] = 0x31;
-	frame_rd.data[1] = 0x31;
-	frame_rd.data[2] = 0x31;
-	frame_rd.data[3] = 0x31;
-	frame_rd.data[4] = 0x31;
-	frame_rd.data[5] = 0x31;
-	frame_rd.data[6] = 0x31;
-	frame_rd.data[7] = 0x31;
+        struct can_frame frame;	
+	frame.can_id = 0x123;
+	frame.can_dlc = 8;
+	frame.data[0] = 0x12;
+	frame.data[1] = 0x34;
+	frame.data[2] = 0x56;
+	frame.data[3] = 0x78;
+	frame.data[4] = 0x91;
+	frame.data[5] = 0x01;
+	frame.data[6] = 0x11;
+	frame.data[7] = 0x21;
 
-	ssize_t nbytes = write(soc, &frame_rd, sizeof(struct can_frame));
+	ssize_t nbytes = write(soc, &frame, sizeof(struct can_frame));
 	if(nbytes < 1)
 	{
 		printf("send error!\n");
@@ -114,9 +109,10 @@ int main(void)
 {
     int cnt = 0;
     //printf("error!");
-    open_port("can0");
     while(cnt < 10 ){
+        open_port("can0");
         write_port();
+	close_port();
         cnt++;
     }
     //printf("error!");
