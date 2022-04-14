@@ -47,15 +47,15 @@
 #include "pref.h"
 #include "human.h"
 
+
+/*can library*/
+#include <linux/can.h>
+#include <linux/can/raw.h>
 #include <string>
 #include <unistd.h>
 #include <net/if.h>
 #include <sys/ioctl.h>
 #include <sys/socket.h>
-
-#include <linux/can.h>
-#include <linux/can/raw.h>
-
 #include "lib.h"
 
 #define DRWD 0
@@ -473,21 +473,6 @@ static void common_drive(int index, tCarElt* car, tSituation *s)
 	tControlCmd	*cmd = HCtx[idx]->CmdControl;
 	const int BUFSIZE = 1024;
 	char sstring[BUFSIZE];
-
-	//cansend code
-	int S;
-	int required_mtu;
-	int mtu;
-	int half_rpm;
-	int rpm, speed_1b, speed_2b, rpm_1b, rpm_2b;
-	int speed_value;
-	int enable_canfd = 1;
-	struct sockaddr_can addr;
-	struct canfd_frame frame;
-	struct ifreq ifr;
-	char name[] = "can0";
-	double car_speed = 0;
-
 
 	static int firstTime = 1;
 
@@ -954,88 +939,98 @@ static void common_drive(int index, tCarElt* car, tSituation *s)
 	}
 #endif
 #endif
-	
-	//car_speed = sqrt(car-> _speed_x * car-> _speed_x + car-> _speed_y * car-> _speed_y);
-
-	//car_angle = 180/PI*(car-> _steerCmd * car->_steerLock);
-
-	//printf("car speed : %6.2f, steer : %6.2f \n", car_speed*3.6, car_angle); 
 
 	HCtx[idx]->lap = car->_laps;
 
+	/*find and print car data*/
+	double car_speed = 0;
+	double car_angle = 0;
+	double car_rpm = 0;
+
+	car_speed = (car->pub.speed)*3.6;
+	car_angle = 180/PI*(car->_yaw);
+	car_rpm = car->_enginerpm*30/PI;
 
 
 	printf("========================================\n");
-	printf("speed: %f\n",(car->_speed_x)*3.6);
-	printf("steer: %f\n", car->_steerCmd);
-	//printf("yaw: %f\n", car->_yaw);
-	printf("RPM: %f\n", car->_enginerpm*30/PI);
+	printf("speed: %f\n",car_speed);
+	printf("yaw: %f\n", car_angle);
+	printf("RPM: %f\n", car_rpm);
 	printf("========================================\n");
 
-	rpm = (int)(car->_enginerpm*30/PI);
-        rpm_1b = rpm&0x00FF;
-	rpm_2b = (rpm&0xFF00)>>8;
+	/*cansend init*/
+	int soc;
+	int speed_value, speed_1b, speed_2b;
+	int yaw_value, yaw_1b, yaw_2b;
+	int rpm_value, rpm_1b, rpm_2b;
+	char name[] = "can0";
 
-	frame.can_id = 0x301;
-	frame.len = 8;
-	frame.flags = 193;
-	frame.__res0 = 0;
-	frame.__res1 = 0;
-	//frame.data[0] = (int)(((car->_speed_x)*3.6/5)-1);
+	/*==============open port==================*/
+	    struct ifreq ifr;
+	    struct sockaddr_can addr;
+	    /* open socket */
+	    soc = socket(PF_CAN, SOCK_RAW, CAN_RAW);
+	    if(soc < 0)
+	    {
+		printf("error!");
+	    }
+	    addr.can_family = AF_CAN;
+	    strcpy(ifr.ifr_name, name);
+	    if (ioctl(soc, SIOCGIFINDEX, &ifr) < 0)
+	    {
+		printf("error!");
+	    }
+	    addr.can_ifindex = ifr.ifr_ifindex;
+	    fcntl(soc, F_SETFL, O_NONBLOCK);
+	    if (bind(soc, (struct sockaddr *)&addr, sizeof(addr)) < 0)
+	    {
+		printf("binding error!");
+	    }
+	/*========================================*/
 
-        speed_value = (car->_speed_x)*3.6*100;
+
+
+	/*==============define data frame==================*/ 
+	/* erase this part*/
+
+	struct canfd_frame frame;
+
+        speed_value = (int)(car_speed);
 	speed_1b = speed_value&0x00FF;
 	speed_2b = (speed_value&0xFF00)>>8;
 
-	rpm = (int)(car->_enginerpm*30/PI);
-        rpm_1b = rpm&0x00FF;
-	rpm_2b = (rpm&0xFF00)>>8;
+	yaw_value = (int)(car_angle);
+	yaw_1b = yaw_value&0x00FF;
+	yaw_2b = (yaw_value&0xFF00)>>8;
 
+	rpm_value = (int)(car_rpm);
+        rpm_1b = rpm_value&0x00FF;
+	rpm_2b = (rpm_value&0xFF00)>>8;
 
-	frame.data[0] = speed_1b;
-	frame.data[1] = speed_2b;
-	//frame.data[2] = (int)(((car->_steerCmd)*100)+100);
-	frame.data[2] = (car->_steerCmd+1)*100;
-//	frame.data[2] = (int)((car->_steerCmd)*10)+10;
-	frame.data[3] = 0;
-	frame.data[4] = rpm_1b;
-	frame.data[5] = rpm_2b;
-	frame.data[6] = 0;
-	frame.data[7] = 0;
-	required_mtu = 16;
+	frame.can_id = 0x123;
+	frame.len = 8;
+	frame.flags = 193;
 
-	S = socket(PF_CAN, SOCK_RAW, CAN_RAW);
+	frame.data[0] = speed_2b;
+	frame.data[1] = speed_1b;
+	frame.data[2] = 0;
+	frame.data[3] = yaw_2b;
+	frame.data[4] = yaw_1b;
+	frame.data[5] = 0;
+	frame.data[6] = rpm_2b;
+	frame.data[7] = rpm_1b;
+	/*===========================================================*/
+	
+	/* write data */
+	ssize_t nbytes = write(soc, &frame, sizeof(struct can_frame));
 
-    	if(S < 0)
-    	{
-		printf("error!");
-		//return (-1);
+	if(nbytes < 1)
+	{
+		printf("send error! \n");
 	}
-	addr.can_family = AF_CAN;
-	strcpy(ifr.ifr_name, name);
-	if (ioctl(S, SIOCGIFINDEX, &ifr) < 0)
-    	{
-		printf("error!");
-        	//return (-1);
-    	}
-    	addr.can_ifindex = ifr.ifr_ifindex;
-    	fcntl(S, F_SETFL, O_NONBLOCK);
-    	if (bind(S, (struct sockaddr *)&addr, sizeof(addr)) < 0)
-    	{
-		printf("binding error!");
-        	//return (-1);
-    	}
 	
-	memset(&addr, 0, sizeof(addr));
-	addr.can_family = AF_CAN;
-	addr.can_ifindex = ifr.ifr_ifindex;
-
-	setsockopt(S, SOL_CAN_RAW, CAN_RAW_FILTER, NULL, 0);
-	
-	bind(S, (struct sockaddr *)&addr, sizeof(addr));
-	write(S, &frame, sizeof(struct can_frame));
-	
-	close(S);
+	/* close port */
+	close(soc);
 }
 
 
